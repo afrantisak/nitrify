@@ -1,0 +1,174 @@
+#!/usr/bin/env python
+import sys
+import HTMLParser 
+
+class Globals():
+    indent = "  "
+    translate_tag = {
+        'div'    : 'panel',
+        'header' : 'html5_header',
+        'footer' : 'html5_footer',
+        'a'      : 'link',
+        'ul'     : 'list',
+        'li'     : 'listitem',
+        'img'    : 'image',
+        'i'      : 'image',
+        'form'   : 'restful_form'
+    }
+    translate_attrib = {
+        'id'     : 'html_id'
+    }
+    translate_tag_attrib = {
+        'img'      : {
+            'src'     : 'image'
+        },
+        'i'        : {
+            'script'     : 'image'
+        },
+        'script'   : {
+            'src'        : 'script'
+        },
+        'textbox'  : {
+            'name'       : 'html_name'
+        },
+        'textarea' : {
+            'name'       : 'html_name'
+        },
+        'div'      : {
+            'for'        : None
+        },
+        'link'     : {
+            'rel'        : None,
+            'type'       : None,
+            'href'       : 'url'
+        },
+        'a'        : {
+            'href'       : 'url'
+        },        
+        'button'   : {
+            'type'       : None
+        },
+        'meta'     : {
+            'http-equiv' : 'http_equiv'
+        }
+    }
+    translate_type_to_tag = {
+        'input'      : {
+            'text'       : 'textbox',
+            'radio'      : 'radio'
+        }
+    }
+    translate_text_to_attrib = {
+        'button'     : 'text'
+    }
+    data_prefix = 'data-'
+globals = Globals()
+
+def format_tag(tag):
+    if tag in globals.translate_tag:
+        tag = globals.translate_tag[tag]
+    if tag:    
+         return "#" + str(tag)
+
+tag_key = "_tag"
+body_key = "~body"
+
+class Parser(HTMLParser.HTMLParser):
+    def __init__(self):
+        HTMLParser.HTMLParser.__init__(self)
+        self.root = None
+        self.current = self.root
+        self.parent = self.root
+    def new_node(self, tag, attrs = []):
+        node = {tag_key: tag, body_key: []}
+        for k, v in attrs:
+            node[k] = v
+        return node
+    def handle_starttag(self, tag, attrs):
+        new_node = self.new_node(tag, attrs)
+        if self.root == None:
+            self.root = new_node
+            self.current = new_node
+            self.parent = new_node
+        else:
+            self.current[body_key].append(new_node)
+            self.parent = self.current
+            self.current = new_node
+    def handle_endtag(self, tag):
+        self.current = self.parent
+    def handle_data(self, data):
+        str = data.strip()
+        if str:
+            self.current[body_key].append(str)
+
+def swap_key(d, new, old):
+    value = d[old]
+    d.pop(old)
+    if new:
+        d[new] = value
+
+def translate(tree):
+    if type(tree) != dict:
+        return
+    for old, new in globals.translate_attrib.iteritems():
+        if old in tree:
+            swap_key(tree, new, old)
+    if tree[tag_key] in globals.translate_tag_attrib:
+        for old, new in globals.translate_tag_attrib[tree[tag_key]].iteritems():
+            if old in tree:
+                swap_key(tree, new, old)
+    tree[tag_key] = format_tag(tree[tag_key])
+    # tail recursive
+    for child in tree[body_key]:
+        translate(child)
+
+def get_line(depth, text):
+    return "{}{}".format("  " * depth, text)
+
+def print_line(lines, depth, text):
+    lines.append(get_line(depth, text))
+
+def erl_body(tree, depth):
+    lines = [erlify(child, depth + 1) for child in tree[body_key]]
+    return ",\n".join(lines)
+
+def erl_body_wrap(tree, depth):
+    body_lines = erl_body(tree, depth)
+    body_wrap_lines = []
+    if body_lines:
+        body_wrap_lines.append("body = [")
+        body_wrap_lines.append("{}".format(body_lines))
+        print_line(body_wrap_lines, depth, "]")
+    return "\n".join(body_wrap_lines)
+
+def erlify(tree, depth = 0):
+    if type(tree) != dict:
+        return get_line(depth, "\"{}\"".format(tree))
+    lines = []
+    print_line(lines, depth, "{} {{".format(tree[tag_key]))
+    attrib_lines = []
+    for k, v in tree.iteritems():
+        if k not in [tag_key, body_key]:
+            print_line(attrib_lines, depth + 1, "{} = \"{}\"".format(k, v))
+    body_wrap = erl_body_wrap(tree, depth + 1)
+    print_line(attrib_lines, depth + 1, "{}".format(body_wrap))
+    lines.append(",\n".join(attrib_lines))
+    print_line(lines, depth, "}")
+    return "\n".join(lines)
+
+if __name__ == "__main__":
+    import argparse
+    arg_parser = argparse.ArgumentParser(description = "Generate Nitrogen/erlang code from HTML")
+    arg_parser.add_argument("infile", nargs = '?', type = argparse.FileType('r'), default = sys.stdin,
+                        help="input html filename -- default reads from stdin")
+    args = arg_parser.parse_args()
+
+    html_parser = Parser()
+    html_parser.feed(args.infile.read())
+
+    tree = html_parser.root
+    translate(tree)
+
+    erl = erlify(tree)
+    print(erl + ".")
+
