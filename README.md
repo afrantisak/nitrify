@@ -4,7 +4,7 @@ nitrify will generate valid Nitrogen erlang code from HTML.  Useful for converti
 
 ## Usage
 
-    ./nitrify test/small_chunk_2.html
+    ./nitrify test/test.html
 
 ## What it does
 
