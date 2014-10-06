@@ -1,12 +1,6 @@
 ## What it is
 
-nitrify will generate valid Nitrogen erlang code from HTML.  Useful for converting existing projects to nitrogen.
-
-## Usage
-
-    ./nitrify test/test.html
-
-## What it does
+Generates Nitrogen erlang terms from HTML.  Useful for converting projects to Nitrogen.
 
 Input
 
@@ -43,3 +37,11 @@ Output
   ]
 }.
 ```
+
+## Usage
+
+```sh
+make install # sudo
+nitrify test/test.html
+```
+
