@@ -65,8 +65,9 @@ class Globals():
     translate_text_to_attrib = {
         'button'     : 'text'
     }
-    allow_no_endtag = [
-        'img'
+    html_no_endtag = [
+        'img',
+        'br'
     ]
     data_prefix = 'data-'
 globals = Globals()
@@ -88,6 +89,9 @@ class Parser(HTMLParser.HTMLParser):
         self.root = None
         self.current = self.root
         self.path = []
+        self.decl = "DOCTYPE html"
+    def is_html(self):
+        return self.decl == "DOCTYPE html"
     def new_node(self, tag, attrs = []):
         node = {tag_key: tag, body_key: []}
         for k, v in attrs:
@@ -95,6 +99,9 @@ class Parser(HTMLParser.HTMLParser):
         return node
     def handle_starttag(self, tag, attrs):
         new_node = self.new_node(tag, attrs)
+        if self.is_html() and tag in globals.html_no_endtag:
+            self.current[body_key].append(new_node)
+            return
         if self.root == None:
             self.root = new_node
             self.current = new_node
@@ -113,6 +120,8 @@ class Parser(HTMLParser.HTMLParser):
         str = data.strip()
         if str:
             self.current[body_key].append(str)
+    def handle_decl(self, data):
+        self.decl = data
     def dump_json(self):
         import json
         return json.dumps(html_parser.root, indent = 4)
@@ -214,7 +223,7 @@ if __name__ == "__main__":
     html_parser.feed(args.infile.read())
 
     tree = html_parser.root
-    assert len(html_parser.path) == 0
+    #assert len(html_parser.path) == 0
 
     #print html_parser.dump_json()
     #sys.exit(0)
