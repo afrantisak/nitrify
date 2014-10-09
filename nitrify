@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import sys
 import HTMLParser 
+import copy
+import urllib
 
 class Globals():
     indent = "  "
@@ -40,10 +42,12 @@ class Globals():
         'link'     : {
             'rel'        : None,
             'type'       : None,
-            'href'       : 'url'
+            'href'       : 'url',
+            'target'     : None
         },
         'a'        : {
-            'href'       : 'url'
+            'href'       : 'url',
+            'target'     : None
         },        
         'button'   : {
             'type'       : None
@@ -72,13 +76,15 @@ def format_tag(tag):
 
 tag_key = "_tag"
 body_key = "~body"
+data_key = "data_fields"
+unmatched_key = 'unmatched'
 
 class Parser(HTMLParser.HTMLParser):
     def __init__(self):
         HTMLParser.HTMLParser.__init__(self)
         self.root = None
         self.current = self.root
-        self.parent = self.root
+        self.path = []
     def new_node(self, tag, attrs = []):
         node = {tag_key: tag, body_key: []}
         for k, v in attrs:
@@ -89,17 +95,21 @@ class Parser(HTMLParser.HTMLParser):
         if self.root == None:
             self.root = new_node
             self.current = new_node
-            self.parent = new_node
         else:
             self.current[body_key].append(new_node)
-            self.parent = self.current
             self.current = new_node
+        self.path.append(new_node)
     def handle_endtag(self, tag):
-        self.current = self.parent
+        self.path.pop()
+        if self.path:
+            self.current = self.path[-1]
     def handle_data(self, data):
         str = data.strip()
         if str:
             self.current[body_key].append(str)
+    def dump_json(self):
+        import json
+        return json.dumps(html_parser.root, indent = 4)
 
 def swap_key(d, new, old):
     value = d[old]
@@ -117,13 +127,21 @@ def translate(tree):
         for old, new in globals.translate_tag_attrib[tree[tag_key]].iteritems():
             if old in tree:
                 swap_key(tree, new, old)
+    for k in copy.copy(tree.keys()):
+        if k.startswith(globals.data_prefix):
+            v = tree[k]
+            tree.pop(k)
+            field_name = k[len(globals.data_prefix):]
+            if 'data_fields' not in tree:
+                tree['data_fields'] = []
+            tree['data_fields'].append((field_name, v))
     tree[tag_key] = format_tag(tree[tag_key])
     # tail recursive
     for child in tree[body_key]:
         translate(child)
 
 def get_line(depth, text):
-    return "{}{}".format("  " * depth, text)
+    return "{}{}".format("    " * depth, text)
 
 def print_line(lines, depth, text):
     lines.append(get_line(depth, text))
@@ -141,17 +159,40 @@ def erl_body_wrap(tree, depth):
         print_line(body_wrap_lines, depth, "]")
     return "\n".join(body_wrap_lines)
 
+def erl_data(tree, depth):
+    lines = []
+    for pair in tree[data_key]:
+        print_line(lines, depth + 1, "{{\"{}\",\"{}\"}}".format(pair[0], pair[1]))
+    return ",\n".join(lines)
+
+def erl_data_wrap(tree, depth):
+    data_lines = erl_data(tree, depth)
+    data_wrap_lines = []
+    if data_lines:
+        data_wrap_lines.append("data_fields = [")
+        data_wrap_lines.append("{}".format(data_lines))
+        print_line(data_wrap_lines, depth, "]")
+    return "\n".join(data_wrap_lines)
+
+def convert_text(text):
+    return text.decode('utf-8').replace(u'\u2019', u'\'').encode('ascii', 'ignore')
+
 def erlify(tree, depth = 0):
     if type(tree) != dict:
-        return get_line(depth, "\"{}\"".format(tree))
+        text = convert_text(tree)
+        return get_line(depth, "\"{}\"".format(text))
     lines = []
     print_line(lines, depth, "{} {{".format(tree[tag_key]))
     attrib_lines = []
     for k, v in tree.iteritems():
-        if k not in [tag_key, body_key]:
+        if k not in [tag_key, body_key, data_key]:
             print_line(attrib_lines, depth + 1, "{} = \"{}\"".format(k, v))
+    if data_key in tree:
+        data_wrap = erl_data_wrap(tree, depth + 1)
+        print_line(attrib_lines, depth + 1, "{}".format(data_wrap))
     body_wrap = erl_body_wrap(tree, depth + 1)
-    print_line(attrib_lines, depth + 1, "{}".format(body_wrap))
+    if body_wrap:
+        print_line(attrib_lines, depth + 1, "{}".format(body_wrap))
     lines.append(",\n".join(attrib_lines))
     print_line(lines, depth, "}")
     return "\n".join(lines)
@@ -167,8 +208,13 @@ if __name__ == "__main__":
     html_parser.feed(args.infile.read())
 
     tree = html_parser.root
+    assert len(html_parser.path) == 0
+
+    #print html_parser.dump_json()
+    #sys.exit(0)
+
     translate(tree)
 
-    erl = erlify(tree)
+    erl = erlify(tree, 1)
     print(erl + ".")
 
