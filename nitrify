@@ -65,6 +65,9 @@ class Globals():
     translate_text_to_attrib = {
         'button'     : 'text'
     }
+    allow_no_endtag = [
+        'img'
+    ]
     data_prefix = 'data-'
 globals = Globals()
 
@@ -100,6 +103,9 @@ class Parser(HTMLParser.HTMLParser):
             self.current = new_node
         self.path.append(new_node)
     def handle_endtag(self, tag):
+        if self.path[-1][tag_key] != tag:
+            assert self.path[-1][tag_key] in globals.allow_no_endtag
+            self.path.pop()
         self.path.pop()
         if self.path:
             self.current = self.path[-1]
